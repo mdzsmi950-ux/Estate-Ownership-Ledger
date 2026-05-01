@@ -401,25 +401,40 @@
       render();
 
     // column resize logic
-    document.querySelectorAll('th').forEach((th, index) => {
+    document.querySelectorAll('thead th').forEach((th, index) => {
       const resizer = th.querySelector('.resizer');
       if (!resizer) return;
 
-      let startX, startWidth;
+      let startX = 0;
+      let startWidth = 0;
 
       resizer.addEventListener('mousedown', (e) => {
+        e.preventDefault();
         startX = e.pageX;
         startWidth = th.offsetWidth;
 
-        function onMouseMove(e) {
+        const onMouseMove = (e) => {
           const newWidth = startWidth + (e.pageX - startX);
+
+          // set width for header
           th.style.width = newWidth + 'px';
 
-          // apply same width to all cells in this column
-          document.querySelectorAll('table tr').forEach(row => {
+          // set width for all rows in same column
+          document.querySelectorAll('tbody tr').forEach(row => {
             const cell = row.children[index];
             if (cell) cell.style.width = newWidth + 'px';
           });
+        };
+
+        const onMouseUp = () => {
+          document.removeEventListener('mousemove', onMouseMove);
+          document.removeEventListener('mouseup', onMouseUp);
+        };
+
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+      });
+    });
         }
 
         function onMouseUp() {
