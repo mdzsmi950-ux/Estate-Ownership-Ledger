@@ -15,14 +15,7 @@
     .panel { background: white; border: 1px solid #ddd; border-radius: 10px; padding: 12px; margin-bottom: 16px; }
     .panelTitle { font-size: 14px; font-weight: bold; margin-bottom: 8px; }
     .generalNotes { width: 100%; min-height: 130px; border: 1px solid #ccc; border-radius: 6px; padding: 8px; font-family: inherit; box-sizing: border-box; }
-    table {
-  border-collapse: collapse;
-  background: white;
-  border: 1px solid #ddd;
-  table-layout: fixed;
-  width: auto;           /* key change */
-  min-width: 1000px;     /* keeps layout stable */
-}
+    table { width: 100%; border-collapse: collapse; background: white; border: 1px solid #ddd; table-layout: fixed; }
     th, td { border: 1px solid #ddd; padding: 8px; vertical-align: top; }
     th { background: #efefef; text-align: left; font-size: 13px; position: relative; }
     input, textarea, select { width: 100%; box-sizing: border-box; border: 1px solid #ccc; border-radius: 5px; padding: 6px; font-family: inherit; font-size: 13px; }
@@ -50,7 +43,7 @@
 </head>
 <body>
   <h1>Estate Ownership Ledger</h1>
-  <div class="note">Each subrow means the parent interest is being divided. The owner summary uses the lowest-level rows only, so once a parent is divided, the parent itself is not counted as the current owner.</div>
+  <div class="note">Each subrow can be used as a division or supporting layer. The Count checkbox controls whether that specific row is included in the grand total and owner summary.</div>
 
   <div class="summary">
     <div class="box"><div class="label">Grand Total Percentage</div><div class="value" id="totalPercent">0%</div></div>
@@ -64,7 +57,7 @@
   </div>
 
   <div class="panel">
-    <div class="panelTitle">Current Owner Summary, Lowest-Level Rows Only</div>
+    <div class="panelTitle">Current Owner Summary, Counted Rows Only</div>
     <table class="summaryTable">
       <thead>
         <tr>
@@ -234,10 +227,8 @@
       return leafRows(entry).reduce((sum, leaf) => sum + claimedDecimal(leaf), 0);
     }
 
-    function countedLeaves() {
-      return roots()
-        .filter(root => root.countInGrand !== false)
-        .flatMap(root => leafRows(root));
+    function countedRows() {
+      return entries.filter(entry => entry.countInGrand !== false);
     }
 
     function escapeHtml(value) {
@@ -283,7 +274,7 @@
           </select>
         </td>
         <td style="text-align:center;">
-          ${level === 0 ? `<input type="checkbox" class="countInput" ${entry.countInGrand !== false ? 'checked' : ''}>` : ''}
+          <input type="checkbox" class="countInput" ${entry.countInGrand !== false ? 'checked' : ''}>
         </td>
         <td>
           <button class="small addSubBtn" type="button">Divide</button>
@@ -369,7 +360,7 @@
     }
 
     function updateTotals() {
-      const total = countedLeaves().reduce((sum, leaf) => sum + claimedDecimal(leaf), 0);
+      const total = countedRows().reduce((sum, entry) => sum + claimedDecimal(entry), 0);
       const units = total * 1440;
       document.getElementById('totalPercent').textContent = formatPercent(total);
       document.getElementById('totalFraction').textContent = decimalToFraction(total);
@@ -378,9 +369,9 @@
 
     function renderOwnerSummary() {
       const totals = {};
-      countedLeaves().forEach(leaf => {
-        const name = (leaf.note || 'Unassigned').trim();
-        totals[name] = (totals[name] || 0) + claimedDecimal(leaf);
+      countedRows().forEach(entry => {
+        const name = (entry.note || 'Unassigned').trim();
+        totals[name] = (totals[name] || 0) + claimedDecimal(entry);
       });
 
       ownerSummaryEl.innerHTML = '';
@@ -452,7 +443,7 @@
           item.entry.percent,
           (decimal * 1440).toFixed(3).replace(/\.000$/, ''),
           item.entry.status,
-          item.isLeaf ? 'Yes' : 'No, divided into subrows'
+          item.entry.countInGrand !== false ? 'Yes' : 'No'
         ]);
       });
       const csv = lines.map(line => line.map(csvEscape).join(',')).join('\n');
