@@ -15,9 +15,9 @@
     .panel { background: white; border: 1px solid #ddd; border-radius: 10px; padding: 12px; margin-bottom: 16px; }
     .panelTitle { font-size: 14px; font-weight: bold; margin-bottom: 8px; }
     .generalNotes { width: 100%; min-height: 130px; border: 1px solid #ccc; border-radius: 6px; padding: 8px; font-family: inherit; box-sizing: border-box; }
-    table { width: 100%; border-collapse: collapse; background: white; border: 1px solid #ddd; table-layout: auto; }
-    th, td { border: 1px solid #ddd; padding: 8px; vertical-align: top; overflow: hidden; }
-    th { background: #efefef; text-align: left; font-size: 13px; }
+    table { width: 100%; border-collapse: collapse; background: white; border: 1px solid #ddd; table-layout: fixed; }
+    th, td { border: 1px solid #ddd; padding: 8px; vertical-align: top; }
+    th { background: #efefef; text-align: left; font-size: 13px; position: relative; }
     input, textarea, select { width: 100%; box-sizing: border-box; border: 1px solid #ccc; border-radius: 5px; padding: 6px; font-family: inherit; font-size: 13px; }
     textarea { min-height: 42px; resize: vertical; }
     .units { white-space: nowrap; font-weight: bold; }
@@ -36,19 +36,9 @@
     .indentGuide { color: #aaa; font-size: 13px; padding-top: 7px; white-space: nowrap; }
     .summaryTable th, .summaryTable td { font-size: 13px; }
     .summaryTable td:first-child { font-weight: bold; }
-      th {
-      position: relative;
-    }
-
-    th .resizer {
-      width: 5px;
-      height: 100%;
-      position: absolute;
-      right: 0;
-      top: 0;
-      cursor: col-resize;
-      user-select: none;
-    }
+    .ledgerWrap { overflow-x: auto; }
+    .ledgerTable { min-width: 1000px; }
+    .resizer { width: 8px; height: 100%; position: absolute; top: 0; right: -4px; cursor: col-resize; user-select: none; z-index: 5; }
   </style>
 </head>
 <body>
@@ -70,34 +60,42 @@
     <div class="panelTitle">Current Owner Summary, Lowest-Level Rows Only</div>
     <table class="summaryTable">
       <thead>
-      <tr>
-        <th>Note / Owner<div class="resizer"></div></th>
-        <th style="width: 135px;">Fraction<div class="resizer"></div></th>
-        <th style="width: 135px;">Percentage<div class="resizer"></div></th>
-        <th style="width: 110px;">1440 Units<div class="resizer"></div></th>
-        <th style="width: 120px;">Status<div class="resizer"></div></th>
-        <th style="width: 80px;">Count<div class="resizer"></div></th>
-        <th style="width: 175px;">Action<div class="resizer"></div></th>
-      </tr>
-    </thead>
+        <tr>
+          <th>Owner / Leaf Row</th>
+          <th style="width:135px;">Fraction</th>
+          <th style="width:135px;">Percentage</th>
+          <th style="width:110px;">1440 Units</th>
+        </tr>
+      </thead>
       <tbody id="ownerSummary"></tbody>
     </table>
   </div>
 
-  <table>
-    <thead>
-      <tr>
-        <th>Note / Owner</th>
-        <th style="width: 135px;">Fraction</th>
-        <th style="width: 135px;">Percentage</th>
-        <th style="width: 110px;">1440 Units</th>
-        <th style="width: 120px;">Status</th>
-        <th style="width: 80px;">Count</th>
-        <th style="width: 175px;">Action</th>
-      </tr>
-    </thead>
-    <tbody id="rows"></tbody>
-  </table>
+  <div class="ledgerWrap">
+    <table class="ledgerTable" id="ledgerTable">
+      <colgroup>
+        <col style="width: 420px;">
+        <col style="width: 140px;">
+        <col style="width: 140px;">
+        <col style="width: 115px;">
+        <col style="width: 125px;">
+        <col style="width: 85px;">
+        <col style="width: 180px;">
+      </colgroup>
+      <thead>
+        <tr>
+          <th>Note / Owner<div class="resizer" data-col="0"></div></th>
+          <th>Fraction<div class="resizer" data-col="1"></div></th>
+          <th>Percentage<div class="resizer" data-col="2"></div></th>
+          <th>1440 Units<div class="resizer" data-col="3"></div></th>
+          <th>Status<div class="resizer" data-col="4"></div></th>
+          <th>Count<div class="resizer" data-col="5"></div></th>
+          <th>Action<div class="resizer" data-col="6"></div></th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
 
   <div class="controls">
     <button class="add" id="addMainBtn" type="button">Add Main Row</button>
@@ -111,6 +109,7 @@
     const rowsEl = document.getElementById('rows');
     const ownerSummaryEl = document.getElementById('ownerSummary');
     const generalNotesEl = document.getElementById('generalNotes');
+    const ledgerTable = document.getElementById('ledgerTable');
 
     let entries = [];
     let nextId = 1;
@@ -226,10 +225,6 @@
 
     function leafDecimal(entry) {
       return leafRows(entry).reduce((sum, leaf) => sum + claimedDecimal(leaf), 0);
-    }
-
-    function allLeaves() {
-      return roots().flatMap(root => leafRows(root));
     }
 
     function countedLeaves() {
@@ -399,53 +394,6 @@
     function addRootRow() {
       entries.push(newEntry());
       render();
-
-    // column resize logic
-    document.querySelectorAll('thead th').forEach((th, index) => {
-      const resizer = th.querySelector('.resizer');
-      if (!resizer) return;
-
-      let startX = 0;
-      let startWidth = 0;
-
-      resizer.addEventListener('mousedown', (e) => {
-        e.preventDefault();
-        startX = e.pageX;
-        startWidth = th.offsetWidth;
-
-        const onMouseMove = (e) => {
-          const newWidth = startWidth + (e.pageX - startX);
-
-          // set width for header
-          th.style.width = newWidth + 'px';
-
-          // set width for all rows in same column
-          document.querySelectorAll('tbody tr').forEach(row => {
-            const cell = row.children[index];
-            if (cell) cell.style.width = newWidth + 'px';
-          });
-        };
-
-        const onMouseUp = () => {
-          document.removeEventListener('mousemove', onMouseMove);
-          document.removeEventListener('mouseup', onMouseUp);
-        };
-
-        document.addEventListener('mousemove', onMouseMove);
-        document.addEventListener('mouseup', onMouseUp);
-      });
-    });
-        }
-
-        function onMouseUp() {
-          document.removeEventListener('mousemove', onMouseMove);
-          document.removeEventListener('mouseup', onMouseUp);
-        }
-
-        document.addEventListener('mousemove', onMouseMove);
-        document.addEventListener('mouseup', onMouseUp);
-      });
-    });
     }
 
     function addChild(parentId) {
@@ -505,6 +453,32 @@
       alert('CSV copied.');
     }
 
+    function setupColumnResize() {
+      const cols = ledgerTable.querySelectorAll('col');
+      ledgerTable.querySelectorAll('.resizer').forEach(resizer => {
+        resizer.addEventListener('mousedown', e => {
+          e.preventDefault();
+          const colIndex = Number(resizer.dataset.col);
+          const col = cols[colIndex];
+          const startX = e.pageX;
+          const startWidth = col.getBoundingClientRect().width || 100;
+
+          function onMouseMove(moveEvent) {
+            const newWidth = Math.max(40, startWidth + moveEvent.pageX - startX);
+            col.style.width = newWidth + 'px';
+          }
+
+          function onMouseUp() {
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+          }
+
+          document.addEventListener('mousemove', onMouseMove);
+          document.addEventListener('mouseup', onMouseUp);
+        });
+      });
+    }
+
     document.getElementById('addMainBtn').addEventListener('click', addRootRow);
     document.getElementById('copyCsvBtn').addEventListener('click', copyCsv);
     document.getElementById('clearBtn').addEventListener('click', clearRows);
@@ -520,6 +494,7 @@
     }
 
     render();
+    setupColumnResize();
   </script>
 </body>
 </html>
