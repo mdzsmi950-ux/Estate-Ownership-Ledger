@@ -383,21 +383,7 @@
 
       kids.forEach(child => renderEntry(child, level + 1));
 
-      if (hasKids) {
-        const diff = proved - claimed;
-        const matched = Math.abs(diff) < 0.000001;
-        const sumTr = document.createElement('tr');
-        sumTr.className = 'sumRow ' + (matched ? 'match' : 'mismatch');
-        sumTr.innerHTML = `
-          <td></td>
-          <td><div style="padding-left:${level * 28}px">Division subtotal for: ${escapeHtml(entry.note || 'parent row')}</div></td>
-          <td>${decimalToFraction(proved)}</td>
-          <td>${formatPercent(proved)}</td>
-          <td>${(proved * 1440).toFixed(3).replace(/\.000$/, '')}</td>
-          <td colspan="3">Claimed parent: ${decimalToFraction(claimed)} / ${formatPercent(claimed)}. Difference: ${decimalToFraction(diff)} / ${formatPercent(diff)}. Count boxes and deeper sublayers do not affect this subtotal.</td>
-        `;
-        rowsEl.appendChild(sumTr);
-      }
+      
     }
 
     function updateLiveRow(row, entry) {
