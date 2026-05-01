@@ -43,6 +43,18 @@
     <div class="box"><div class="label">Grand Total 1440 Units</div><div class="value" id="totalUnits">0 / 1440</div></div>
   </div>
 
+const NOTES_KEY = 'brassEstateGeneralNotes';
+
+const notesEl = document.getElementById('generalNotes');
+if (notesEl) {
+  const savedNotes = localStorage.getItem(NOTES_KEY);
+  if (savedNotes) notesEl.value = savedNotes;
+
+  notesEl.addEventListener('input', () => {
+    localStorage.setItem(NOTES_KEY, notesEl.value);
+  });
+}
+  
   <table>
     <thead>
       <tr>
