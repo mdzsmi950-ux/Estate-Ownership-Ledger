@@ -15,7 +15,14 @@
     .panel { background: white; border: 1px solid #ddd; border-radius: 10px; padding: 12px; margin-bottom: 16px; }
     .panelTitle { font-size: 14px; font-weight: bold; margin-bottom: 8px; }
     .generalNotes { width: 100%; min-height: 130px; border: 1px solid #ccc; border-radius: 6px; padding: 8px; font-family: inherit; box-sizing: border-box; }
-    table { width: 100%; border-collapse: collapse; background: white; border: 1px solid #ddd; table-layout: fixed; }
+    table {
+  border-collapse: collapse;
+  background: white;
+  border: 1px solid #ddd;
+  table-layout: fixed;
+  width: auto;           /* key change */
+  min-width: 1000px;     /* keeps layout stable */
+}
     th, td { border: 1px solid #ddd; padding: 8px; vertical-align: top; }
     th { background: #efefef; text-align: left; font-size: 13px; position: relative; }
     input, textarea, select { width: 100%; box-sizing: border-box; border: 1px solid #ccc; border-radius: 5px; padding: 6px; font-family: inherit; font-size: 13px; }
