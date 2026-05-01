@@ -8,24 +8,19 @@
     body { font-family: Arial, sans-serif; margin: 24px; background: #f7f7f7; color: #222; }
     h1 { font-size: 22px; margin-bottom: 6px; }
     .note { font-size: 13px; margin-bottom: 18px; color: #555; }
-
     .summary { display: flex; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
     .box { background: white; border: 1px solid #ddd; border-radius: 10px; padding: 12px 16px; min-width: 170px; }
     .label { font-size: 12px; color: #666; margin-bottom: 4px; }
     .value { font-size: 18px; font-weight: bold; }
-
     table { width: 100%; border-collapse: collapse; background: white; border: 1px solid #ddd; }
     th, td { border: 1px solid #ddd; padding: 8px; vertical-align: top; }
     th { background: #efefef; text-align: left; font-size: 13px; }
-
     input, textarea, select { width: 100%; box-sizing: border-box; border: 1px solid #ccc; border-radius: 5px; padding: 6px; font-family: inherit; font-size: 13px; }
     textarea { min-height: 42px; resize: vertical; }
-
-    .percent, .units { white-space: nowrap; font-weight: bold; }
-
+    .units { white-space: nowrap; font-weight: bold; }
+    .hint { font-size: 11px; color: #777; margin-top: 4px; }
     .unconfirmed { color: #9aa0a6; }
     .confirmed { color: #000; }
-
     button { border: none; border-radius: 6px; padding: 8px 12px; cursor: pointer; font-size: 13px; margin-right: 6px; }
     .add { background: #222; color: white; margin-top: 12px; }
     .delete { background: #eee; color: #333; }
@@ -34,7 +29,7 @@
 </head>
 <body>
   <h1>Ownership Fraction Tracker</h1>
-  <div class="note">Unconfirmed rows are gray. Toggle to Confirmed to lock visually.</div>
+  <div class="note">Enter either a fraction or a percentage. The last edited field controls the row. Unconfirmed rows are gray.</div>
 
   <div class="summary">
     <div class="box"><div class="label">Total Percentage</div><div class="value" id="totalPercent">0.000%</div></div>
@@ -48,7 +43,7 @@
         <th style="width: 130px;">Date</th>
         <th>Note</th>
         <th style="width: 130px;">Fraction</th>
-        <th style="width: 120px;">Percentage</th>
+        <th style="width: 130px;">Percentage</th>
         <th style="width: 110px;">1440 Units</th>
         <th style="width: 120px;">Status</th>
         <th style="width: 75px;">Action</th>
@@ -66,94 +61,161 @@
   <script>
     const rowsEl = document.getElementById('rows');
 
-    function gcd(a, b) { a = Math.abs(a); b = Math.abs(b); while (b) [a, b] = [b, a % b]; return a || 1; }
+    function gcd(a, b) {
+      a = Math.abs(Math.round(a));
+      b = Math.abs(Math.round(b));
+      while (b) [a, b] = [b, a % b];
+      return a || 1;
+    }
+
+    function simplify(n, d) {
+      const f = gcd(n, d);
+      return `${Math.round(n / f)}/${Math.round(d / f)}`;
+    }
 
     function parseFraction(value) {
       const cleaned = String(value || '').trim();
       if (!cleaned) return null;
+
       if (cleaned.includes('/')) {
         const parts = cleaned.split('/').map(x => Number(x.trim()));
-        if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
-        return { numerator: parts[0], denominator: parts[1] };
+        if (parts.length !== 2 || !Number.isFinite(parts[0]) || !Number.isFinite(parts[1]) || parts[1] === 0) return null;
+        return parts[0] / parts[1];
       }
+
       const number = Number(cleaned);
       if (!Number.isFinite(number)) return null;
-      return { numerator: number, denominator: 1 };
+      return number;
     }
 
-    function simplify(n, d) { const f = gcd(n, d); return `${n/f}/${d/f}`; }
+    function parsePercent(value) {
+      const cleaned = String(value || '').replace('%', '').trim();
+      if (!cleaned) return null;
+      const number = Number(cleaned);
+      if (!Number.isFinite(number)) return null;
+      return number / 100;
+    }
+
+    function percentToFraction(decimal) {
+      const units = Math.round(decimal * 1440 * 1000000) / 1000000;
+      if (Math.abs(units - Math.round(units)) < 0.000001) {
+        return simplify(Math.round(units), 1440);
+      }
+      return decimal.toFixed(8).replace(/0+$/, '').replace(/\.$/, '');
+    }
+
+    function formatPercent(decimal) {
+      return (decimal * 100).toFixed(3).replace(/\.000$/, '') + '%';
+    }
 
     function calculate() {
       let totalDecimal = 0;
       let totalUnits = 0;
 
       document.querySelectorAll('tbody tr').forEach(row => {
-        const fractionInput = row.querySelector('.fractionInput').value;
-        const parsed = parseFraction(fractionInput);
-        const percentCell = row.querySelector('.percent');
+        const fractionInput = row.querySelector('.fractionInput');
+        const percentInput = row.querySelector('.percentInput');
         const unitsCell = row.querySelector('.units');
         const status = row.querySelector('.statusSelect').value;
+        const source = row.dataset.source || 'fraction';
 
-        row.classList.remove('confirmed','unconfirmed');
+        row.classList.remove('confirmed', 'unconfirmed');
         row.classList.add(status === 'confirmed' ? 'confirmed' : 'unconfirmed');
 
-        if (!parsed || parsed.denominator === 0) {
-          percentCell.textContent = '';
+        let decimal = null;
+
+        if (source === 'percent') {
+          decimal = parsePercent(percentInput.value);
+          // DO NOT overwrite fraction when percent is edited
+        } else {
+          decimal = parseFraction(fractionInput.value);
+          if (decimal !== null) percentInput.value = formatPercent(decimal);
+        }
+
+        if (decimal === null) {
           unitsCell.textContent = '';
           return;
         }
 
-        const decimal = parsed.numerator / parsed.denominator;
         const units = decimal * 1440;
-
         totalDecimal += decimal;
         totalUnits += units;
-
-        percentCell.textContent = (decimal * 100).toFixed(3) + '%';
         unitsCell.textContent = Number.isInteger(units) ? units : units.toFixed(3);
       });
 
-      document.getElementById('totalPercent').textContent = (totalDecimal * 100).toFixed(3) + '%';
+      document.getElementById('totalPercent').textContent = formatPercent(totalDecimal);
       document.getElementById('totalUnits').textContent = totalUnits.toFixed(3).replace(/\.000$/, '') + ' / 1440';
-      const roundedNumerator = Math.round(totalDecimal * 1440);
-      document.getElementById('totalFraction').textContent = simplify(roundedNumerator, 1440);
+      document.getElementById('totalFraction').textContent = percentToFraction(totalDecimal);
     }
 
-    function addRow(date = '', note = '', fraction = '', status = 'unconfirmed') {
+        if (decimal === null) {
+          unitsCell.textContent = '';
+          return;
+        }
+
+        const units = decimal * 1440;
+        totalDecimal += decimal;
+        totalUnits += units;
+        unitsCell.textContent = Number.isInteger(units) ? units : units.toFixed(3);
+      });
+
+      document.getElementById('totalPercent').textContent = formatPercent(totalDecimal);
+      document.getElementById('totalUnits').textContent = totalUnits.toFixed(3).replace(/\.000$/, '') + ' / 1440';
+      document.getElementById('totalFraction').textContent = percentToFraction(totalDecimal);
+    }
+
+    function addRow(date = '', note = '', fraction = '', status = 'unconfirmed', percent = '') {
       const tr = document.createElement('tr');
+      tr.dataset.source = percent ? 'percent' : 'fraction';
       tr.innerHTML = `
         <td><input type="text" class="dateInput" value="${date}"></td>
         <td><textarea class="noteInput">${note}</textarea></td>
-        <td><input type="text" class="fractionInput" placeholder="25/288" value="${fraction}"></td>
-        <td class="percent"></td>
+        <td>
+          <input type="text" class="fractionInput" placeholder="25/288" value="${fraction}">
+          <div class="hint">fraction source</div>
+        </td>
+        <td>
+          <input type="text" class="percentInput" placeholder="34.722%" value="${percent}">
+          <div class="hint">percent source</div>
+        </td>
         <td class="units"></td>
         <td>
           <select class="statusSelect">
-            <option value="unconfirmed" ${status==='unconfirmed'?'selected':''}>Unconfirmed</option>
-            <option value="confirmed" ${status==='confirmed'?'selected':''}>Confirmed</option>
+            <option value="unconfirmed" ${status === 'unconfirmed' ? 'selected' : ''}>Unconfirmed</option>
+            <option value="confirmed" ${status === 'confirmed' ? 'selected' : ''}>Confirmed</option>
           </select>
         </td>
         <td><button class="delete" onclick="this.closest('tr').remove(); calculate();">X</button></td>
       `;
       rowsEl.appendChild(tr);
-      tr.querySelectorAll('input, textarea, select').forEach(el => el.addEventListener('input', calculate));
+
+      tr.querySelector('.fractionInput').addEventListener('input', () => { tr.dataset.source = 'fraction'; calculate(); });
+      tr.querySelector('.percentInput').addEventListener('input', () => { tr.dataset.source = 'percent'; calculate(); });
+      tr.querySelectorAll('.dateInput, .noteInput, .statusSelect').forEach(el => el.addEventListener('input', calculate));
       calculate();
     }
 
-    function clearRows() { rowsEl.innerHTML = ''; addRow(); calculate(); }
+    function clearRows() {
+      rowsEl.innerHTML = '';
+      addRow();
+      calculate();
+    }
 
-    function csvEscape(value) { return '"' + String(value || '').replaceAll('"', '""') + '"'; }
+    function csvEscape(value) {
+      return '"' + String(value || '').replaceAll('"', '""') + '"';
+    }
 
     function copyCsv() {
-      const lines = [['Date','Note','Fraction','Percentage','1440 Units','Status']];
+      const lines = [['Date','Note','Fraction','Percentage','1440 Units','Status','Source']];
       document.querySelectorAll('tbody tr').forEach(row => {
         lines.push([
           row.querySelector('.dateInput').value,
           row.querySelector('.noteInput').value,
           row.querySelector('.fractionInput').value,
-          row.querySelector('.percent').textContent,
+          row.querySelector('.percentInput').value,
           row.querySelector('.units').textContent,
-          row.querySelector('.statusSelect').value
+          row.querySelector('.statusSelect').value,
+          row.dataset.source || 'fraction'
         ]);
       });
       const csv = lines.map(line => line.map(csvEscape).join(',')).join('\n');
@@ -164,6 +226,7 @@
     addRow('1937-07-09','Francis Leo dies. Edith receives 6/72.','6/72','confirmed');
     addRow('','Anna Bloemer interest to Edith.','1/72','unconfirmed');
     addRow('1950-10-05','Mary Clemence dies. Edith receives 18/72.','18/72','confirmed');
+    addRow('','Probate percentage example.','','unconfirmed','32.536%');
   </script>
 </body>
 </html>
