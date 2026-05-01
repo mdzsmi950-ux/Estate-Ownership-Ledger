@@ -12,6 +12,9 @@
     .box { background: white; border: 1px solid #ddd; border-radius: 10px; padding: 12px 16px; min-width: 170px; }
     .label { font-size: 12px; color: #666; margin-bottom: 4px; }
     .value { font-size: 18px; font-weight: bold; }
+    .panel { background: white; border: 1px solid #ddd; border-radius: 10px; padding: 12px; margin-bottom: 16px; }
+    .panelTitle { font-size: 14px; font-weight: bold; margin-bottom: 8px; }
+    .generalNotes { width: 100%; min-height: 130px; border: 1px solid #ccc; border-radius: 6px; padding: 8px; font-family: inherit; box-sizing: border-box; }
     table { width: 100%; border-collapse: collapse; background: white; border: 1px solid #ddd; }
     th, td { border: 1px solid #ddd; padding: 8px; vertical-align: top; }
     th { background: #efefef; text-align: left; font-size: 13px; }
@@ -31,11 +34,13 @@
     .controls { margin-top: 12px; }
     .treeLabel { display: flex; gap: 6px; align-items: flex-start; }
     .indentGuide { color: #aaa; font-size: 13px; padding-top: 7px; white-space: nowrap; }
+    .summaryTable th, .summaryTable td { font-size: 13px; }
+    .summaryTable td:first-child { font-weight: bold; }
   </style>
 </head>
 <body>
   <h1>Estate Ownership Ledger</h1>
-  <div class="note">Use parent rows for claimed totals. Add sublayers to prove what the claimed total consists of. If a row has sublayers, the grand total uses the lowest-level entries, not the claimed parent total.</div>
+  <div class="note">Each subrow means the parent interest is being divided. The owner summary uses the lowest-level rows only, so once a parent is divided, the parent itself is not counted as the current owner.</div>
 
   <div class="summary">
     <div class="box"><div class="label">Grand Total Percentage</div><div class="value" id="totalPercent">0%</div></div>
@@ -43,19 +48,30 @@
     <div class="box"><div class="label">Grand Total 1440 Units</div><div class="value" id="totalUnits">0 / 1440</div></div>
   </div>
 
-<div style="margin-bottom:16px;">
-  <div style="background:white; border:1px solid #ddd; border-radius:10px; padding:12px;">
-    <div style="font-size:12px; color:#666; margin-bottom:6px;">General Notes</div>
-    <textarea id="generalNotes" style="width:100%; min-height:120px; border:1px solid #ccc; border-radius:6px; padding:8px; font-family:inherit;"></textarea>
+  <div class="panel">
+    <div class="panelTitle">General Notes</div>
+    <textarea id="generalNotes" class="generalNotes" placeholder="General notes, questions, missing deeds, probate issues, or attorney comments."></textarea>
   </div>
-</div>
-  
 
-  
+  <div class="panel">
+    <div class="panelTitle">Current Owner Summary, Lowest-Level Rows Only</div>
+    <table class="summaryTable">
+      <thead>
+        <tr>
+          <th>Owner / Leaf Row</th>
+          <th style="width:135px;">Fraction</th>
+          <th style="width:135px;">Percentage</th>
+          <th style="width:110px;">1440 Units</th>
+        </tr>
+      </thead>
+      <tbody id="ownerSummary"></tbody>
+    </table>
+  </div>
+
   <table>
     <thead>
       <tr>
-        <th>Note</th>
+        <th>Note / Owner</th>
         <th style="width: 135px;">Fraction</th>
         <th style="width: 135px;">Percentage</th>
         <th style="width: 110px;">1440 Units</th>
@@ -74,21 +90,14 @@
 
   <script>
     const STORAGE_KEY = 'brassEstateLedgerData';
+    const NOTES_KEY = 'brassEstateGeneralNotes';
     const rowsEl = document.getElementById('rows');
+    const ownerSummaryEl = document.getElementById('ownerSummary');
+    const generalNotesEl = document.getElementById('generalNotes');
+
     let entries = [];
     let nextId = 1;
-   
-    const NOTES_KEY = 'brassEstateGeneralNotes';
-    
-    const notesEl = document.getElementById('generalNotes');
-    if (notesEl) {
-      const savedNotes = localStorage.getItem(NOTES_KEY);
-      if (savedNotes) notesEl.value = savedNotes;
-    
-      notesEl.addEventListener('input', () => {
-        localStorage.setItem(NOTES_KEY, notesEl.value);
-      });
-    }
+
     function newEntry(parentId = null, note = '', fraction = '', status = 'unconfirmed', percent = '') {
       return { id: nextId++, parentId, note, fraction, percent, status, source: percent ? 'percent' : 'fraction' };
     }
@@ -103,12 +112,28 @@
       try {
         const parsed = JSON.parse(saved);
         if (!Array.isArray(parsed.entries)) return false;
-        entries = parsed.entries;
+        entries = parsed.entries.map(e => ({
+          id: e.id,
+          parentId: e.parentId === undefined ? null : e.parentId,
+          note: e.note || '',
+          fraction: e.fraction || '',
+          percent: e.percent || '',
+          status: e.status || 'unconfirmed',
+          source: e.source || (e.percent ? 'percent' : 'fraction')
+        }));
         nextId = parsed.nextId || Math.max(0, ...entries.map(e => e.id || 0)) + 1;
         return true;
       } catch (error) {
         return false;
       }
+    }
+
+    function saveNotes() {
+      localStorage.setItem(NOTES_KEY, generalNotesEl.value);
+    }
+
+    function loadNotes() {
+      generalNotesEl.value = localStorage.getItem(NOTES_KEY) || '';
     }
 
     function gcd(a, b) {
@@ -159,6 +184,10 @@
       return parseFraction(entry.fraction);
     }
 
+    function claimedDecimal(entry) {
+      return entryDecimal(entry) || 0;
+    }
+
     function childrenOf(id) {
       return entries.filter(e => e.parentId === id);
     }
@@ -167,18 +196,22 @@
       return childrenOf(id).length > 0;
     }
 
-    function claimedDecimal(entry) {
-      return entryDecimal(entry) || 0;
+    function roots() {
+      return entries.filter(e => e.parentId === null || e.parentId === undefined);
+    }
+
+    function leafRows(entry) {
+      const kids = childrenOf(entry.id);
+      if (kids.length === 0) return [entry];
+      return kids.flatMap(child => leafRows(child));
     }
 
     function leafDecimal(entry) {
-      const kids = childrenOf(entry.id);
-      if (kids.length === 0) return claimedDecimal(entry);
-      return kids.reduce((sum, child) => sum + leafDecimal(child), 0);
+      return leafRows(entry).reduce((sum, leaf) => sum + claimedDecimal(leaf), 0);
     }
 
-    function roots() {
-      return entries.filter(e => e.parentId === null || e.parentId === undefined);
+    function allLeaves() {
+      return roots().flatMap(root => leafRows(root));
     }
 
     function escapeHtml(value) {
@@ -193,6 +226,7 @@
       rowsEl.innerHTML = '';
       roots().forEach(root => renderEntry(root, 0));
       updateTotals();
+      renderOwnerSummary();
       saveData();
     }
 
@@ -210,7 +244,7 @@
         <td>
           <div class="treeLabel" style="padding-left:${level * 28}px">
             <div class="indentGuide">${level > 0 ? '↳' : ''}</div>
-            <textarea class="noteInput" placeholder="Note">${escapeHtml(entry.note)}</textarea>
+            <textarea class="noteInput" placeholder="Owner / note">${escapeHtml(entry.note)}</textarea>
           </div>
         </td>
         <td><input type="text" class="fractionInput" placeholder="111/360" value="${escapeHtml(entry.fraction)}"></td>
@@ -223,7 +257,7 @@
           </select>
         </td>
         <td>
-          <button class="small addSubBtn" type="button">Add sub</button>
+          <button class="small addSubBtn" type="button">Divide</button>
           <button class="delete deleteBtn" type="button">X</button>
         </td>
       `;
@@ -232,6 +266,7 @@
       tr.querySelector('.noteInput').addEventListener('input', e => {
         entry.note = e.target.value;
         saveData();
+        renderOwnerSummary();
       });
       tr.querySelector('.noteInput').addEventListener('blur', render);
 
@@ -245,6 +280,7 @@
         }
         updateLiveRow(tr, entry);
         updateTotals();
+        renderOwnerSummary();
         saveData();
       });
       tr.querySelector('.fractionInput').addEventListener('blur', render);
@@ -254,6 +290,7 @@
         entry.source = 'percent';
         updateLiveRow(tr, entry);
         updateTotals();
+        renderOwnerSummary();
         saveData();
       });
       tr.querySelector('.percentInput').addEventListener('blur', render);
@@ -276,11 +313,11 @@
         const sumTr = document.createElement('tr');
         sumTr.className = 'sumRow ' + (matched ? 'match' : 'mismatch');
         sumTr.innerHTML = `
-          <td><div style="padding-left:${(level + 1) * 28}px">Subtotal for: ${escapeHtml(entry.note || 'parent row')}</div></td>
+          <td><div style="padding-left:${(level + 1) * 28}px">Division subtotal for: ${escapeHtml(entry.note || 'parent row')}</div></td>
           <td>${decimalToFraction(proved)}</td>
           <td>${formatPercent(proved)}</td>
           <td>${(proved * 1440).toFixed(3).replace(/\.000$/, '')}</td>
-          <td colspan="2">Claimed: ${decimalToFraction(claimed)} / ${formatPercent(claimed)}. Difference: ${decimalToFraction(diff)} / ${formatPercent(diff)}</td>
+          <td colspan="2">Claimed parent: ${decimalToFraction(claimed)} / ${formatPercent(claimed)}. Difference: ${decimalToFraction(diff)} / ${formatPercent(diff)}</td>
         `;
         rowsEl.appendChild(sumTr);
       }
@@ -289,16 +326,37 @@
     function updateLiveRow(row, entry) {
       const decimal = claimedDecimal(entry);
       const units = decimal * 1440;
-      const unitsCell = row.querySelector('.units');
-      unitsCell.textContent = Number.isInteger(units) ? units : units.toFixed(3);
+      row.querySelector('.units').textContent = Number.isInteger(units) ? units : units.toFixed(3);
     }
 
     function updateTotals() {
-      const total = roots().reduce((sum, root) => sum + leafDecimal(root), 0);
+      const total = allLeaves().reduce((sum, leaf) => sum + claimedDecimal(leaf), 0);
       const units = total * 1440;
       document.getElementById('totalPercent').textContent = formatPercent(total);
       document.getElementById('totalFraction').textContent = decimalToFraction(total);
       document.getElementById('totalUnits').textContent = units.toFixed(3).replace(/\.000$/, '') + ' / 1440';
+    }
+
+    function renderOwnerSummary() {
+      const totals = {};
+      allLeaves().forEach(leaf => {
+        const name = (leaf.note || 'Unassigned').trim();
+        totals[name] = (totals[name] || 0) + claimedDecimal(leaf);
+      });
+
+      ownerSummaryEl.innerHTML = '';
+      Object.keys(totals).sort().forEach(name => {
+        const decimal = totals[name];
+        const units = decimal * 1440;
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${escapeHtml(name)}</td>
+          <td>${decimalToFraction(decimal)}</td>
+          <td>${formatPercent(decimal)}</td>
+          <td>${units.toFixed(3).replace(/\.000$/, '')}</td>
+        `;
+        ownerSummaryEl.appendChild(tr);
+      });
     }
 
     function addRootRow() {
@@ -323,7 +381,7 @@
     }
 
     function clearRows() {
-      if (!confirm('Clear all ledger rows?')) return;
+      if (!confirm('Clear all ledger rows and saved data?')) return;
       entries = [];
       nextId = 1;
       localStorage.removeItem(STORAGE_KEY);
@@ -333,9 +391,7 @@
     function flattenRows() {
       const output = [];
       function walk(entry, level) {
-        const claimed = claimedDecimal(entry);
-        const proved = leafDecimal(entry);
-        output.push({ level, entry, claimed, proved, usesLeaf: hasChildren(entry.id) });
+        output.push({ level, entry, isLeaf: !hasChildren(entry.id) });
         childrenOf(entry.id).forEach(child => walk(child, level + 1));
       }
       roots().forEach(root => walk(root, 0));
@@ -347,17 +403,17 @@
     }
 
     function copyCsv() {
-      const lines = [['Level','Note','Fraction','Percentage','1440 Units','Status','Used In Grand Total']];
+      const lines = [['Level','Note / Owner','Fraction','Percentage','1440 Units','Status','Counted In Current Owner Summary']];
       flattenRows().forEach(item => {
-        const decimalUsed = item.usesLeaf ? item.proved : item.claimed;
+        const decimal = claimedDecimal(item.entry);
         lines.push([
           item.level,
           item.entry.note,
           item.entry.fraction,
           item.entry.percent,
-          (decimalUsed * 1440).toFixed(3).replace(/\.000$/, ''),
+          (decimal * 1440).toFixed(3).replace(/\.000$/, ''),
           item.entry.status,
-          item.usesLeaf ? 'No, sublayer total used' : 'Yes'
+          item.isLeaf ? 'Yes' : 'No, divided into subrows'
         ]);
       });
       const csv = lines.map(line => line.map(csvEscape).join(',')).join('\n');
@@ -368,11 +424,15 @@
     document.getElementById('addMainBtn').addEventListener('click', addRootRow);
     document.getElementById('copyCsvBtn').addEventListener('click', copyCsv);
     document.getElementById('clearBtn').addEventListener('click', clearRows);
+    generalNotesEl.addEventListener('input', saveNotes);
+
+    loadNotes();
 
     if (!loadData()) {
       entries.push(newEntry(null, 'Carl Brass, from lawyer report', '111/360', 'unconfirmed'));
-      entries.push(newEntry(1, 'Example sublayer: Clara Brass line share', '23/360', 'unconfirmed'));
-      entries.push(newEntry(1, 'Example sublayer: Paul Brass conveyed share', '23/360', 'unconfirmed'));
+      entries.push(newEntry(null, 'Joseph Brass, from lawyer report', '85/360', 'unconfirmed'));
+      entries.push(newEntry(null, 'John Brass RT, from lawyer report', '39/360', 'unconfirmed'));
+      entries.push(newEntry(null, 'M&E Farms, Inc.', '125/360', 'unconfirmed'));
     }
 
     render();
